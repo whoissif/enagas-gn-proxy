@@ -1,3 +1,4 @@
 .wrangler/
 dev.log
+login.log
 node_modules/

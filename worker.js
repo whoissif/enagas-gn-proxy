@@ -1,4 +1,7 @@
-const MUNICIPIOS = {
+// Códigos "amigables" para los accesos rápidos de la calculadora; el proxy
+// también acepta cualquier otro código real de Enagás vía ?codigo=XXXXX
+// (los 1.675 municipios/zonas de https://www.enagas.es/.../gasbytown.townitem.json).
+const ATAJOS = {
   madrid: "28MA2",
   barcelona: "08019",
   valencia: "46250",
@@ -39,18 +42,17 @@ export default {
       return new Response(null, { headers: corsHeaders(origin) });
     }
 
-    if (url.pathname === "/municipios") {
-      return new Response(JSON.stringify({ disponibles: Object.keys(MUNICIPIOS) }), {
-        headers: { "Content-Type": "application/json", ...corsHeaders(origin) },
-      });
-    }
+    const atajo = (url.searchParams.get("municipio") || "").toLowerCase();
+    const codigo = (url.searchParams.get("codigo") || ATAJOS[atajo] || "").toUpperCase();
 
-    const key = (url.searchParams.get("municipio") || "").toLowerCase();
-    const codigo = MUNICIPIOS[key];
-    if (!codigo) {
+    // Los códigos reales de Enagás son de 5 caracteres (dígitos, o dígitos+letras
+    // para zonas con varios distribuidores, p. ej. "28MA2"). Esto solo descarta
+    // basura evidente; la validación real la hace la propia respuesta de Enagás.
+    if (!/^[0-9A-Z]{4,6}$/.test(codigo)) {
       return new Response(JSON.stringify({
-        error: "municipio desconocido",
-        disponibles: Object.keys(MUNICIPIOS),
+        error: "código de municipio inválido o ausente",
+        uso: "GET /?codigo=XXXXX  (o  ?municipio=madrid|barcelona|valencia|sevilla)",
+        listaCompleta: "https://www.enagas.es/content/enagas/es/gestion-tecnica-sistema/energy-data/informacion-comercial/factor-conversion-facturacion/calidad-gas-municipio/jcr:content/responsiveGrid/container/gasbytown.townitem.json",
       }), {
         status: 400,
         headers: { "Content-Type": "application/json", ...corsHeaders(origin) },
@@ -66,14 +68,14 @@ export default {
     const hace35 = new Date(hoy.getTime() - 35 * 24 * 60 * 60 * 1000);
     const enagasUrl =
       "https://www.enagas.es/content/enagas/es/gestion-tecnica-sistema/energy-data/informacion-comercial/factor-conversion-facturacion/calidad-gas-municipio/jcr:content/responsiveGrid/container/gasbytown.gasbytowndto.json" +
-      `?fechaIni=${fmtDate(hace35)}&fechaFin=${fmtDate(hoy)}&municipio=${codigo}&presion=Todas`;
+      `?fechaIni=${fmtDate(hace35)}&fechaFin=${fmtDate(hoy)}&municipio=${encodeURIComponent(codigo)}&presion=Todas`;
 
     let datos;
     try {
       const resp = await fetch(enagasUrl, { headers: { Accept: "application/json" } });
       if (!resp.ok) throw new Error("Enagás respondió " + resp.status);
       datos = await resp.json();
-      if (!Array.isArray(datos) || datos.length === 0) throw new Error("respuesta vacía");
+      if (!Array.isArray(datos) || datos.length === 0) throw new Error("respuesta vacía: código probablemente inexistente");
     } catch (e) {
       return new Response(JSON.stringify({ error: "No se pudo consultar Enagás", detalle: String(e) }), {
         status: 502,
@@ -92,7 +94,7 @@ export default {
     });
 
     const salida = {
-      municipio: key,
+      codigo,
       nombre: ultimo.municipio,
       fecha: ultimo.fecha,
       pcsMensual: parseEsNumber(ultimo.pcsmensual),
